@@ -1,0 +1,530 @@
+//August 2022: Rani,Eva,Erna,Rosa (UPI)
+
+function onOpen() {//membuat ui/menu baru pada spreadsheet
+  var SS = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('List Files & Attributes')
+    .addItem('List All Files', 'listAll')
+    .addSeparator()
+    .addSubMenu(ui.createMenu('List Attributes (Optional)')
+      .addItem('Owner', 'ListOwner')
+      .addItem('Editors', 'ListEditors')
+      .addItem('Viewers', 'ListViewers')
+      .addItem('Description', 'ListDescription')
+      .addItem('Date Created', 'ListDateCreated')
+      .addItem('Last Updated', 'ListLastUpdated')
+      .addItem('Size', 'ListSize')
+      .addItem('File Sharing status', 'ListAccess')
+      .addItem('User permission', 'ListPermission')
+    )
+    .addToUi();
+}
+
+function listAll() {
+  var currentSheet = SpreadsheetApp.getActiveSheet();//memodifikasi spreadsheet yang aktif/sedang dibuka
+  var lastRow = currentSheet.getLastRow();
+  try{
+    var temp = currentSheet.getRange(lastRow,1).getValue();}
+  catch (e) {
+    var temp = '0';
+  }
+  
+    
+  var userInput = Browser.msgBox('Process - Question', 'Klik "YES" untuk menampilkan list yang baru, Klik "NO" untuk tetap pada sheet yang sudah ada.', Browser.Buttons.YES_NO);
+  if (userInput == "yes") {//jika terdapat masukan berupa id folder
+    currentSheet.clear();//membersihkan sheet yang sedang dibuka sekarang
+    //memasukan id folder yang ingin diambil list file/foldernya
+    var folderId = Browser.inputBox('Masukan ID Folder', Browser.Buttons.OK_CANCEL);
+    currentSheet.appendRow(["ID", "Name", "Full Path", "URL"]);//tampilkan id, nama, path file, url
+    var list = [];
+    var excluded = [];
+    if (folderId === "") {//jika tidak memasukan id folder atau kosong
+      Browser.msgBox('Invalid folder ID');//tampilkan invalid
+      return;
+    }
+  } 
+  else if (userInput == "no") {//jika user memilih no 
+  //tetap pada data di sheet yang sudah ada
+    temp = currentSheet.getRange(1, 5, lastRow).getValues();
+    var folderId = temp[0][0];
+    var list = cleanArray([].concat.apply([], temp));
+    var lastID = list.pop();
+    var excluded = [lastID,];
+    getVoidFolderList(lastID, list, excluded);
+  } else {
+    return;
+  }
+
+//Mengizinkan skrip memodifikasi folder di google drive
+  var parent = DriveApp.getFolderById(folderId);//mengambil data folder parent berdasarkan id folder
+  var parentName = DriveApp.getFolderById(folderId).getName();//mengambil nama folder parent berdasarkan id folder
+  getChildFolders(parentName, parent, currentSheet, list, excluded);
+  getRootFiles(parentName, parent, currentSheet);
+}
+
+// Menghapus nilai false
+function cleanArray(actual) { //menghapus semua nilai false seperti undefined, null, 0, false, NaN dan "" (empty string)
+  var newArray = new Array();
+  for (var i = 0; i < actual.length; i++) {
+    if (actual[i]) {
+      newArray.push(actual[i]);
+    }
+  }
+  return newArray;
+}
+
+function getRootFiles(parentName, parent, sheet) {//mengambil file utama pada folder utama
+  var files = parent.getFiles();//get file dari folder utama
+  var output = [];// untuk data/atribut file yang ditampilkan
+  var path;//variabel untuk meanmpilkan path file
+  var Url; //variabel untuk url file pada folder utama
+  var fileID; //variabel untuk id file pada folder utama
+  //var FileOwnerEmail;
+  while (files.hasNext()) {
+    var childFile = files.next();//pada folder utama, ambil data file
+    var fileName = childFile.getName();//ambil nama file dari folder utama
+    path = "Folder Utama: " + parentName + " / File: " + fileName;//ambil path file dari folder utama
+    fileID = childFile.getId();//ambil id file dari folder utama
+    Url = "https://drive.google.com/open?id=" + fileID;//ambil url file dari folder utama
+    // ---------- Write
+    output.push([fileID, fileName, path, Url]);//menampilkan atribut id file, nama file, path file, dan url file dari folder utama
+  }
+  if (output.length) {
+    var last_row = sheet.getLastRow();
+    sheet.getRange(last_row + 1, 1, output.length, 4).setValues(output);
+  }
+}
+// ======================================================================================================
+
+function getChildFolders(parentName, parent, sheet, voidFolder, excluded) {//mengambil data subfolder
+  var childFolders = parent.getFolders();//ambil data subfolder dari folder utama
+
+  // list sub folder 
+  while (childFolders.hasNext()) {
+    var childFolder = childFolders.next();//get item berikutnya dalam kumpulan folder (subfolder/childfolder).
+    var folderID = childFolder.getId();//get id childfolder
+
+    if (voidFolder.indexOf(folderID) > -1) { // jika folder file di dalamnya sudah ada
+      continue;
+    }
+
+    var folderName = childFolder.getName();//get nama childfolder/subfolder
+
+    var data = [//data subfolder
+      folderID,//id subfolder
+      folderName,//nama subfolder
+      "Folder Utama: " + parentName + " / Sub-folder: " + folderName, //menampilkan path folder utama>>subfolder
+      ("https://drive.google.com/open?id=" + folderID),//menampilkan url subfolder 
+    ];
+    // ---------- Write
+    if (excluded.indexOf(folderID) == -1) { //cek jika kondisi folder terdaftar tetapi file belum;
+      sheet.appendRow(data);
+    }
+
+    // List kumpulan file didalam subfolder
+    var files = childFolder.getFiles();//pada subfolder, ambil data file
+    var output = [];//untuk data/atribut file yang ditampilkan
+    var path;//path asal file (folder dan subfoldernya)
+    var Url;//url file dari subfolder
+    var fileID;//id file dari subfolder
+    //var FileOwnerEmail;
+    while (files.hasNext()) {
+      var childFile = files.next();//get kumpulan file subfolder
+      var fileName = childFile.getName();//get nama file subfolder
+      path = "Folder Utama: " + parentName + " / Sub-folder File: " + folderName + " --> " + fileName;//menampilkan path file subfolder
+      fileID = childFile.getId();//get id file subfolder
+      Url = "https://drive.google.com/open?id=" + fileID;//get url file subfolder
+      // ---------- Write
+      output.push([fileID, fileName, path, Url]);//tampilkan id file, nama file, path file dan url file subfolder
+    }
+    if (output.length) {
+      var last_row = sheet.getLastRow();
+      sheet.getRange(last_row + 1, 1, output.length, 4).setValues(output);
+    }
+
+    // rekusrsif subfolder
+    getChildFolders(parentName + " >> " + folderName, childFolder, sheet, voidFolder, excluded);
+
+  }
+}
+
+//mengecualikan ID folder parent tempat skrip berhenti sehingga akan menangkap folder dari awal.
+function getVoidFolderList(lastID, list, excluded) {
+  var folderParents = DriveApp.getFolderById(lastID).getParents();
+  var folderID = new Array;
+
+  while (folderParents.hasNext()) {
+    var folderID = folderParents.next().getId();
+    if (folderID == "NOT FOUND") {
+      break;
+    }
+
+    var index = list.indexOf(folderID);
+    if (index !== -1) {
+      excluded.push(folderID);
+      list.splice(index, 1);
+    }
+
+    getVoidFolderList(folderID, list, excluded);
+  }
+}
+
+//------ Fungsi untuk pilihan atribut yang ingin ditampilkan------//
+
+// Atribut Owner //
+function ListOwner() {//fungsi jika memilih atribut owner untuk ditampilkan di sheet
+    var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var lastrow = ss.getLastRow();
+    var lastcolumn = ss.getLastColumn();
+    var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+    while (startnumber == 1) {//jika memasukan angka satu
+        startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+    }
+
+    ss.getRange(1, lastcolumn + 1).setValue("Owner");//mengambil data owner
+    for (var x = startnumber; x <= lastrow; x++)
+    {
+        var value = ss.getRange(x, 1).getValue();
+        if (value == "") {
+            continue;
+        }
+        try {
+            var childFolder = DriveApp.getFolderById(value);
+        } catch (e) {
+            ss.getRange(x, lastcolumn + 1).setValue("Fail");
+            continue;
+        }
+
+        try {
+            var owner = childFolder.getOwner().getEmail();
+            ss.getRange(x, lastcolumn + 1).setValue(owner);
+        } catch (e) {
+            ss.getRange(x, lastcolumn + 1).setValue("team drive");
+        }
+    }
+}
+
+//Atribut Editors//
+function ListEditors() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue("Editors");
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    var editors = childFolder.getEditors();
+    var editorValues = [];
+
+    for (var v = 0; v < editors.length; v++) {
+      editorValues.push(editors[v].getEmail());
+    }
+
+    var joinValues = editorValues.join(", ");
+    ss.getRange(x, lastcolumn + 1).setValue(joinValues);
+
+
+    if (joinValues == "") {
+      ss.getRange(x, lastcolumn + 1).setValue("-");
+    }
+  }
+}
+
+// Viewers //
+function ListViewers() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue("Viewers");
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    var viewers = childFolder.getViewers();
+    var viewerValues = [];
+
+    for (v = 0; v < viewers.length; v++) {
+      viewerValues.push(viewers[v].getEmail());
+
+    }
+
+    var joinValues = viewerValues.join(", ");
+    ss.getRange(x, lastcolumn + 1).setValue(joinValues);
+
+    if (joinValues == "") {
+      ss.getRange(x, lastcolumn + 1).setValue("-");
+    }
+
+
+  }
+
+}
+
+// Atribut Deskripsi //
+function ListDescription() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue("Description");
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    var Description = childFolder.getDescription();
+    ss.getRange(x, lastcolumn + 1).setValue(Description);
+    if (Description == "" || Description == "undefined" || Description == null) {
+      ss.getRange(x, lastcolumn + 1).setValue("-");
+    }
+
+  }
+
+}
+
+// Atribut Tanggal Dibuat //
+function ListDateCreated() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue("Date Created");
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    var DateCreated = childFolder.getDateCreated();
+    ss.getRange(x, lastcolumn + 1).setValue(DateCreated);
+
+  }
+
+}
+
+// Atribut Terakhir di-Update //
+function ListLastUpdated() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue("Last Updated");
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    var LastUpdated = childFolder.getLastUpdated();
+    ss.getRange(x, lastcolumn + 1).setValue(LastUpdated);
+
+  }
+
+}
+
+// Atribut ukuran/size file //
+function ListSize() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue("Size");
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    var Size = childFolder.getSize();
+    ss.getRange(x, lastcolumn + 1).setValue(Size);
+
+    if (Size == "0") {
+      ss.getRange(x, lastcolumn + 1).setValue("-");
+    }
+
+  }
+}
+
+// Atribu Akses User //
+function ListAccess() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue('=HYPERLINK("https://developers.google.com/apps-script/reference/drive/access","Who Can Access")');
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    try {
+      var sharingAccess = childFolder.getSharingAccess();
+      ss.getRange(x, lastcolumn + 1).setValue(sharingAccess);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+  }
+}
+
+// Atribut Izin user //
+function ListPermission() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var lastrow = ss.getLastRow();
+  var lastcolumn = ss.getLastColumn();
+  var startnumber = Browser.inputBox('Masukan baris (angka) selain "1"', Browser.Buttons.OK_CANCEL);
+
+  while (startnumber == 1) {
+    startnumber = Browser.inputBox('Baris 1 untuk headline. Silahkan pilih baris lain', Browser.Buttons.OK_CANCEL);
+  }
+
+  ss.getRange(1, lastcolumn + 1).setValue('=HYPERLINK("https://developers.google.com/apps-script/reference/drive/permission","User Permission to file/folder")');
+
+  for (var x = startnumber; x <= lastrow; x++)
+
+  {
+    var value = ss.getRange(x, 1).getValue();
+    if (value == "") {
+      continue;
+    }
+
+    try {
+      var childFolder = DriveApp.getFolderById(value);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+    try {
+      var sharingPermission = childFolder.getSharingPermission();
+      ss.getRange(x, lastcolumn + 1).setValue(sharingPermission);
+    } catch (e) {
+      ss.getRange(x, lastcolumn + 1).setValue("Fail");
+      continue;
+    }
+
+  }
+}
